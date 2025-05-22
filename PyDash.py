@@ -183,7 +183,7 @@ def create():
                     <select id="version" class="version-select">{options_html}</select>
                 </div>
             </div>
-            <div id="editor"># Write your Python code here</div>
+            <div id="editor"></div>
             <button class="save-btn" onclick="promptFilename()">💾 Save</button>
         </div>
 
