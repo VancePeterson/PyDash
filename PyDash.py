@@ -3,9 +3,37 @@ import requests
 import subprocess
 from flask import Flask, render_template_string, request
 import socket
+import json
+from tkinter import Tk, filedialog
 
 app = Flask(__name__)
-SCRIPT_DIR = r"C:\Users\Vance\Desktop\Python"
+
+CONFIG_PATH = "config.json"
+
+# Get cross-platform default Documents path
+DEFAULT_SCRIPT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "PyDash")
+
+# Ensure the default directory exists
+os.makedirs(DEFAULT_SCRIPT_DIR, exist_ok=True)
+
+def load_script_dir():
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                config = json.load(f)
+                path = config.get("SCRIPT_DIR", DEFAULT_SCRIPT_DIR)
+                if os.path.isdir(path):
+                    return path
+        except json.JSONDecodeError:
+            print("⚠️ config.json is invalid, using default directory.")
+    return DEFAULT_SCRIPT_DIR
+
+def save_script_dir(path):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump({"SCRIPT_DIR": path}, f, indent=2)
+
+# Global directory used by all routes
+SCRIPT_DIR = load_script_dir()
 
 # ---------------------- GitHub Version Fetch ----------------------
 def fetch_python_versions():
@@ -14,12 +42,34 @@ def fetch_python_versions():
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             releases = response.json()
-            versions = sorted({r['tag_name'].lstrip('v').split('-')[0] for r in releases}, reverse=True)
+            raw_versions = {r['tag_name'].lstrip('v').split('-')[0] for r in releases}
+            versions = sorted(
+                raw_versions,
+                key=lambda v: tuple(map(int, v.split("."))),
+                reverse=True
+            )
             return versions
     except Exception:
         pass
-    # Fallback list
     return ["3.12", "3.11", "3.10", "3.9", "3.8"]
+
+# ---------------------- Choose Directory ----------------------
+def pick_directory():
+    root = Tk()
+    root.withdraw()
+    folder_path = filedialog.askdirectory(title="Select Python Script Directory")
+    if folder_path:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump({"SCRIPT_DIR": folder_path}, f, indent=2)
+        print(f"✅ Saved to config.json:\n{folder_path}")
+    else:
+        print("❌ No folder selected.")
+
+@app.route("/run-folder-picker")
+def run_folder_picker():
+    subprocess.Popen(["python", "set_directory.py"])
+    return "<p>✅ Folder picker launched. Please return and refresh once complete.</p><a href='/settings'>Back</a>"
+
 
 # ---------------------- Shared HTML ----------------------
 sidebar_html = """
@@ -200,61 +250,70 @@ def create():
             <div id="editor"></div>
             <button class="save-btn" onclick="promptFilename()">💾 Save</button>
         </div>
-
         <script>
-            let saved = false;
-            let filename = null;
-            let originalCode = `# Write your Python code here`;
+        let saved = false;
+        let filename = null;
+        let originalCode = `# Write your Python code here`;
 
-            window.addEventListener('beforeunload', function (e) {{
-                if (!saved && window.editor && window.editor.getValue() !== originalCode) {{
-                    e.preventDefault();
-                    e.returnValue = '';
-                }}
-            }});
-
-            require.config({{ paths: {{ vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }} }});
-            require(['vs/editor/editor.main'], function () {{
-                window.editor = monaco.editor.create(document.getElementById('editor'), {{
-                    value: originalCode,
-                    language: 'python',
-                    theme: 'vs-dark',
-                    fontSize: 14,
-                    minimap: {{ enabled: false }},
-                    lineNumbers: 'on',
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true
-                }});
-            }});
-
-            function promptFilename() {{
-                if (!filename) {{
-                    const input = prompt("Enter filename (without .py):");
-                    if (!input) return;
-                    filename = input.endsWith(".py") ? input : input + ".py";
-                }}
-                saveCode();
+        window.addEventListener('beforeunload', function (e) {{
+            if (!saved && window.editor && window.editor.getValue() !== originalCode) {{
+                e.preventDefault();
+                e.returnValue = '';
             }}
+        }});
 
-            function saveCode() {{
-                const code = window.editor.getValue();
-                const pythonVersion = document.getElementById("version").value;
-                fetch('/save-script', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{
-                        content: code,
-                        filename: filename,
-                        python_version: pythonVersion
-                    }})
+        require.config({{ paths: {{ vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }} }});
+        require(['vs/editor/editor.main'], function () {{
+            window.editor = monaco.editor.create(document.getElementById('editor'), {{
+                value: originalCode,
+                language: 'python',
+                theme: 'vs-dark',
+                fontSize: 14,
+                minimap: {{ enabled: false }},
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true
+            }});
+        }});
+
+        function promptFilename() {{
+            if (!filename) {{
+                const input = prompt("Enter filename (without .py):");
+                if (!input) return;
+                filename = input.endsWith(".py") ? input : input + ".py";
+            }}
+            saveCode(false);
+        }}
+
+        function saveCode(overwrite) {{
+            const code = window.editor.getValue();
+            const pythonVersion = document.getElementById("version").value;
+
+            fetch('/save-script', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    content: code,
+                    filename: filename,
+                    python_version: pythonVersion,
+                    overwrite: overwrite
                 }})
-                .then(res => res.text())
-                .then(msg => {{
-                    alert(msg);
-                    saved = true;
-                    document.getElementById("filename-display").innerText = filename;
-                }});
-            }}
+            }})
+            .then(res => res.text())
+            .then(msg => {{
+                if (msg === "EXISTS") {{
+                    if (confirm(`A script named "${{filename}}" already exists. Overwrite?`)) {{
+                        saveCode(true);
+                    }}
+                    return;
+                }}
+                alert(msg);
+                saved = true;
+                filename = null;
+                document.getElementById("filename-display").innerText = "Unsaved script";
+                window.editor.setValue(originalCode); // Reset to blank
+            }});
+        }}
         </script>
     </body>
     </html>
@@ -266,6 +325,7 @@ def save_script():
     content = data.get("content", "")
     name = data.get("filename", "").strip()
     version = data.get("python_version", "3.12").split("-")[0]
+    overwrite = data.get("overwrite", False)
 
     if not name.endswith(".py"):
         name += ".py"
@@ -274,6 +334,10 @@ def save_script():
     os.makedirs(script_dir, exist_ok=True)
 
     script_path = os.path.join(script_dir, name)
+
+    if os.path.exists(script_path) and not overwrite:
+        return "EXISTS", 200
+
     with open(script_path, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -283,20 +347,13 @@ def save_script():
     if not uv_initialized:
         try:
             subprocess.run(["uv", "init", "--python", version], cwd=script_dir, check=True)
-
-            # After init, rename auto-generated main.py to your custom filename
             default_main_path = os.path.join(script_dir, "main.py")
             if os.path.exists(default_main_path) and default_main_path != script_path:
                 os.replace(default_main_path, script_path)
         except subprocess.CalledProcessError as e:
             return f"❌ UV init failed: {e}", 500
 
-    else:
-        # If already initialized, just overwrite existing file
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-    # Optional: install requirements if they exist
+    # Optional: install requirements if present
     req_path = os.path.join(script_dir, "requirements.txt")
     if os.path.exists(req_path):
         try:
@@ -304,7 +361,7 @@ def save_script():
         except subprocess.CalledProcessError as e:
             return f"⚠️ Saved, but failed to update dependencies: {e}", 500
 
-    return f"✅ Script saved. UV env {'created and main.py renamed' if not uv_initialized else 'updated'} for {name}"
+    return "✅ Script saved.\n✅ UV virtual environment created."
 
 @app.route("/scripts")
 def list_scripts():
@@ -354,12 +411,19 @@ def scheduled():
 
 @app.route("/settings")
 def settings():
+    current_dir = SCRIPT_DIR
+
     return render_template_string(f"""
     <!doctype html><html><head><title>Settings</title>{base_css}</head><body>
         {sidebar_html}
         <div class="main">
             <div class="header">Settings</div>
-            <p>Configure dashboard options here.</p>
+            <p><strong>Script Directory:</strong></p>
+            <input type="text" value="{current_dir}" disabled style="width: 100%; padding: 10px; background-color: #2e2e2e; color: #fff; border: 1px solid #555; border-radius: 4px; margin-bottom: 10px;" />
+            <form method="GET" action="/run-folder-picker">
+                <button type="submit" style="padding: 10px 20px; background-color: #444; color: #fff; border: none; border-radius: 4px;">📂 Browse</button>
+            </form>
+            <p>This will open a folder picker window. Restart the app to apply changes.</p>
         </div>
     </body></html>
     """)
