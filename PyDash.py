@@ -1,6 +1,7 @@
 import os
 import requests
 import subprocess
+import time
 from flask import Flask, render_template_string, request
 import socket
 import json
@@ -75,7 +76,7 @@ def run_folder_picker():
 sidebar_html = """
 <div class="sidebar">
     <button class="menu-button" onclick="location.href='/'">🏠 Dashboard</button>
-    <button class="menu-button" onclick="location.href='/create'">🆕 Create</button>
+    <!-- <button class="menu-button" onclick="location.href='/create'">🆕 Create</button> --!>
     <button class="menu-button" onclick="location.href='/scripts'">📄 Scripts</button>
     <button class="menu-button" onclick="location.href='/scheduled'">⏰ Scheduled</button>
     <button class="menu-button" onclick="location.href='/settings'">⚙️ Settings</button>
@@ -366,15 +367,108 @@ def save_script():
 @app.route("/scripts")
 def list_scripts():
     dirs = os.listdir(SCRIPT_DIR)
-    py_dirs = [d for d in dirs if os.path.isdir(os.path.join(SCRIPT_DIR, d)) and os.path.exists(os.path.join(SCRIPT_DIR, d, f"{d}.py"))]
+    py_dirs = [
+        d for d in dirs
+        if os.path.isdir(os.path.join(SCRIPT_DIR, d)) and
+        os.path.exists(os.path.join(SCRIPT_DIR, d, f"{d}.py"))
+    ]
+
+    rows = ""
+    for d in py_dirs:
+        script_path = os.path.join(SCRIPT_DIR, d, f"{d}.py")
+        created = os.path.getctime(script_path)
+        modified = os.path.getmtime(script_path)
+        created_str = f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(created))}"
+        modified_str = f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(modified))}"
+
+        rows += f"""
+        <tr>
+            <td>{d}.py</td>
+            <td>{created_str}</td>
+            <td>{modified_str}</td>
+            <td style="text-align:right;">
+                <a href="/run-script/{d}" class="action-button">▶️ Run</a>
+                <a href="/edit-script/{d}" class="action-button">✏️ Edit</a>
+                <a href="/delete-script/{d}" class="action-button danger">🗑️ Delete</a>
+            </td>
+        </tr>
+        """
+
     return render_template_string(f"""
-    <!doctype html><html><head><title>Scripts</title>{base_css}</head><body>
+    <!doctype html><html><head><title>Scripts</title>{base_css}
+    <style>
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }}
+        th, td {{
+            padding: 12px;
+            border-bottom: 1px solid #444;
+        }}
+        th {{
+            background-color: #2e2e2e;
+            text-align: left;
+        }}
+        tr:hover {{
+            background-color: #333;
+        }}
+        .action-button {{
+            margin-left: 8px;
+            padding: 6px 12px;
+            background-color: #444;
+            border-radius: 4px;
+            color: white;
+            text-decoration: none;
+        }}
+        .action-button:hover {{
+            background-color: #555;
+        }}
+        .danger {{
+            background-color: #b33a3a;
+        }}
+        .danger:hover {{
+            background-color: #cc4444;
+        }}
+        .create-button {{
+            float: right;
+            padding: 8px 16px;
+            margin-bottom: 10px;
+            background-color: #4a90e2;
+            color: white;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: bold;
+        }}
+        .create-button:hover {{
+            background-color: #5aa0f0;
+        }}
+        .header-bar {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+    </style>
+    </head><body>
         {sidebar_html}
         <div class="main">
-            <div class="header">Scripts</div>
-            <ul class="file-list">
-                {''.join(f'<li><a href="/view-script/{d}/{d}.py" style="color:inherit;text-decoration:none;">{d}</a></li>' for d in py_dirs)}
-            </ul>
+            <div class="header-bar">
+                <div class="header">Scripts</div>
+                <a href="/create" class="create-button">➕ Create Script</a>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Date Created</th>
+                        <th>Last Modified</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
         </div>
     </body></html>
     """)
