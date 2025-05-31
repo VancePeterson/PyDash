@@ -109,6 +109,20 @@ def dashboard():
         <div class="main">
             <div class="header">Python Dashboard</div>
             <p>This dashboard is served from <strong>{hostname}</strong>.</p>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
+                <div style="background-color:#2a2a2a; padding:20px; border-radius:8px; border:1px solid #444;">
+                    <h3>🕒 Recently Run</h3>
+                    <p>No recent runs.</p>
+                </div>
+                <div style="background-color:#2a2a2a; padding:20px; border-radius:8px; border:1px solid #444;">
+                    <h3>⏰ Scheduled Scripts</h3>
+                    <p>No scheduled scripts.</p>
+                </div>
+                <div style="background-color:#2a2a2a; padding:20px; border-radius:8px; border:1px solid #444;">
+                    <h3>🔜 Next Scheduled Run</h3>
+                    <p>Nothing scheduled.</p>
+                </div>
+            </div>
         </div>
     </body></html>
     """)
